@@ -6,11 +6,11 @@ import SearchBar from "../components/SearchBar";
 import MovieCard from "../components/MovieCard";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 import BackgroundFX from "../components/BackgroundFX";
-import recommendMovies, { type Movie } from "../lib/api";
+import recommendMovies, { describeError, type Movie } from "../lib/api";
 
 const FEATURED = [
   "Inception", "The Dark Knight", "Toy Story", "Interstellar",
-  "Pulp Fiction", "The Matrix", "Forrest Gump", "Parasite",
+  "Pulp Fiction", "The Matrix", "Forrest Gump", "Fight Club",
 ];
 
 const fadeIn: Variants = {
@@ -34,21 +34,24 @@ export default function Home() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [matched, setMatched] = useState<string | null>(null);
+  // Set only when the backend corrected the query (typo / near-miss), not on every search.
+  const [correctedFrom, setCorrectedFrom] = useState<string | null>(null);
 
   const handleSearch = async (title: string) => {
     setError("");
     setMovies([]);
     setQuery(title);
     setMatched(null);
+    setCorrectedFrom(null);
     setLoading(true);
 
     try {
-      const { matched: m, recommendations } = await recommendMovies(title);
+      const { matched: m, query: corrected, recommendations } = await recommendMovies(title);
       setMatched(m);
+      setCorrectedFrom(corrected ?? null);
       setMovies(recommendations);
     } catch (err) {
-      console.error("Search failed:", err);
-      setError("Could not fetch recommendations. Is the backend running?");
+      setError(describeError(err, title));
     } finally {
       setLoading(false);
     }
@@ -124,9 +127,10 @@ export default function Home() {
                 <span className="text-slate-200 font-medium">{matched || query}</span>
                 <span className="ml-2 text-slate-600">· {movies.length} picks</span>
               </p>
-              {matched && matched.toLowerCase() !== query.toLowerCase() && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Matched &ldquo;{matched}&rdquo; for your search
+              {correctedFrom && (
+                <p className="mt-1 text-xs text-amber-400/70">
+                  No exact match for &ldquo;{correctedFrom}&rdquo; &mdash; showing results for
+                  &ldquo;{matched}&rdquo; instead.
                 </p>
               )}
             </motion.div>
