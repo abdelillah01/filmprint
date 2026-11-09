@@ -21,3 +21,7 @@ MAP.canvas
 
 # OS/editor
 .DS_Store
+
+# Claude Code (local config and instructions)
+.claude/
+CLAUDE.md
