@@ -10,23 +10,20 @@ Type a film you like, get ten similar ones. A content-based recommender (TF-IDF 
 
 ## Results
 
-Evaluated on 3,536 films with MovieLens ratings; 270 held-out test users × 5 seeds each, 95% CIs over users. Full table, methodology and caveats: [`evaluation/results.md`](evaluation/results.md).
+**Short version:** content similarity works as a signal but is a modest one. Every content variant I tried scores about the same, and collaborative filtering beats them all. A plain "most popular" list wins this benchmark, mostly because of how the benchmark defines success.
 
-| Model | NDCG@10 (95% CI) | Notes |
-|---|---|---|
-| Popularity: most liked | **0.410** ± 0.035 | ignores the query entirely |
-| Item-item CF (train users only) | **0.233** ± 0.020 | out-of-sample: never sees the test users |
-| Production: TF-IDF metadata + rating rerank | **0.080** ± 0.011 | what the API serves |
-| TF-IDF metadata | 0.075 ± 0.010 | |
-| Sentence embeddings (MiniLM) | 0.072 ± 0.009 | |
-| TF-IDF + overview / tuned / SVD | 0.066 – 0.069 | all within noise of each other |
+Held-out evaluation on 3,536 films: 270 test users × 5 queries each, MovieLens ratings, 95% CIs over users. Full table, methodology and limitations: [`evaluation/results.md`](evaluation/results.md).
 
-**What this does and doesn't say**
+| Model | NDCG@10 (±95% CI) |
+|---|---|
+| Popularity: most liked (ignores the query) | 0.410 ± 0.035 |
+| Item-item collaborative filtering (trained on other users) | 0.233 ± 0.020 |
+| **Production: TF-IDF metadata + rating rerank** | **0.080 ± 0.011** |
+| TF-IDF metadata / embeddings / +overview / tuned / SVD | 0.066 – 0.075, within noise of each other |
 
-- All content-based variants (plain, +overview, tuned, SVD, embeddings, rerank) are statistically indistinguishable. Adding plot text or swapping in embeddings did **not** measurably help.
-- Collaborative filtering clearly beats content similarity, and a hybrid doesn't beat CF alone.
-- A query-ignoring *"most liked"* list beats everything. That is a property of the protocol: held-out "also liked" films are dominated by globally popular titles, so the metric rewards popularity. It does not measure the thing the product promises, *films that feel like the one you typed*. Treat these numbers as "agreement with what users liked", not "quality of similarity".
-- An earlier version of this harness reported CF at 0.33 vs content at 0.07 and "content beats popularity". Both were artifacts of CF being built from the test users' own ratings and of a weak mean-rating baseline. The split is now by user, and the old numbers should not be cited.
+- **Content variants are tied.** Adding plot text, tuning, SVD or sentence embeddings did not measurably help, so the simplest feature set ships.
+- **Popularity wins by construction.** Films users "also liked" are mostly popular ones, so the metric rewards popularity. It does not measure the product's real promise, *films that feel like the one you typed*; read the scores as agreement with user taste, not similarity quality.
+- **Corrected numbers.** An earlier harness version overstated CF and claimed content beat popularity, because CF saw the test users' ratings and the baseline was weak. The split is now by user.
 
 ## How it works
 
@@ -76,7 +73,31 @@ npm install
 npm run dev                         # http://localhost:3000
 ```
 
-`backend/.env` needs a `SECRET_KEY` (see the comment in `.env.example`). `TMDB_API_KEY` is optional: only the poster prefetch script and a last-resort live fallback use it.
+Open <http://localhost:3000> and click a suggested film (or type one). You should see a poster grid within a second.
+
+### Configuration
+
+Everything has a working dev default, so both `.env` files are optional for a first run.
+
+| Variable | Where | Default | Notes |
+|---|---|---|---|
+| `SECRET_KEY` | `backend/.env` | insecure placeholder | **set it for any deployment**; generator command in `.env.example` |
+| `DEBUG` | `backend/.env` | `True` | set `False` in production, together with `ALLOWED_HOSTS` |
+| `ALLOWED_HOSTS` | `backend/.env` | empty | comma-separated |
+| `TMDB_API_KEY` | `backend/.env` | unset | only for `scripts/fetch_posters.py` and a last-resort live poster fallback; posters already ship in the dataset |
+| `NEXT_PUBLIC_API_URL` | `frontend/.env.local` | `http://127.0.0.1:8000` | no trailing slash |
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| UI says "Can't reach the recommendation server" | the backend isn't running, or `NEXT_PUBLIC_API_URL` points elsewhere |
+| Browser console shows a CORS error | the frontend isn't on `localhost:3000` / `127.0.0.1:3000`; add its origin to `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` in `backend/backend/settings.py` |
+| API returns 503 / server won't start with `ModelArtifactError` | `ML-model/model_v2/` was built with a different scikit-learn than the one installed; use the pinned `requirements.txt`, or rebuild with `python ML-model/notebooks/build_model.py` |
+| "We couldn't find a movie matching …" | the title isn't in the catalog (3,536 films up to 2016); try the exact title |
+| One film shows a placeholder instead of a poster | expected: 3,535 of 3,536 films have a TMDB poster |
+| `.venv\Scripts\activate` is blocked on Windows PowerShell | run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `cmd` / Git Bash |
+| `pip install` is slow or fails building numpy/pandas | check `python --version` is 3.11+ (tested on 3.12) and upgrade `pip` so pre-built wheels are used |
 
 ### API
 
@@ -139,6 +160,7 @@ frontend/
   components/                  SearchBar, MovieCard, LoadingSkeleton, BackgroundFX
   lib/api.ts                   typed API client + error classification
 evaluation/                    evaluate.py, results.md
+docs/                          ROADMAP.md (audit and plan), TASKS.md (progress checklist)
 scripts/                       download_data.py, fetch_posters.py
 ```
 
