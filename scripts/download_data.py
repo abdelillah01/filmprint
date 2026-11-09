@@ -12,8 +12,9 @@ After running:
 """
 
 import zipfile
-import urllib.request
 from pathlib import Path
+
+import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "ML-model" / "data" / "raw"
@@ -39,7 +40,13 @@ Place both in:
 def download_movielens(raw_dir: Path) -> None:
     zip_path = raw_dir / "ml-latest-small.zip"
     print(f"Downloading MovieLens ml-latest-small from {MOVIELENS_URL} ...")
-    urllib.request.urlretrieve(MOVIELENS_URL, zip_path)
+    # requests ships its own CA bundle (certifi); urllib relies on the OS store, which fails
+    # with CERTIFICATE_VERIFY_FAILED on some Windows setups.
+    with requests.get(MOVIELENS_URL, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(zip_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                f.write(chunk)
     print(f"Saved to {zip_path}")
 
     with zipfile.ZipFile(zip_path) as zf:

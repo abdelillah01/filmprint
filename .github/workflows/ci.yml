@@ -59,3 +59,13 @@ jobs:
       - name: Lint (eslint)
         run: npm run lint
         working-directory: frontend
+
+      - name: Type check (tsc)
+        run: npx tsc --noEmit
+        working-directory: frontend
+
+      - name: Build (next)
+        run: npm run build
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
