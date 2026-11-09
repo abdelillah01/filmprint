@@ -1,7 +1,9 @@
 {
   "sklearn_version": "1.9.1",
-  "python_version": "3.14.7",
-  "build_date": "2026-10-13",
+  "python_version": "3.12.10",
+  "build_date": "2026-11-09",
   "n_movies": 3536,
-  "n_features": 10000
+  "n_features": 10000,
+  "n_neighbors": 50,
+  "text_column": "metadata"
 }

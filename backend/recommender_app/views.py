@@ -1,10 +1,14 @@
+import logging
+
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 
-from .utils import recommend_movies
+from .utils import ModelArtifactError, recommend_movies, same_title
+
+logger = logging.getLogger(__name__)
 
 
 class RecommendRequestSerializer(serializers.Serializer):
@@ -58,14 +62,23 @@ def recommend_view(request):
         matched_title, recommendations = recommend_movies(title, top_n=top_n)
     except ValueError as e:
         return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
+    except ModelArtifactError:
+        logger.exception("Model artifacts unavailable")
         return Response(
-            {"error": f"Unexpected error: {e}"},
+            {"error": "The recommendation model is unavailable."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except Exception:
+        logger.exception("Unexpected error in recommend_view")
+        return Response(
+            {"error": "Internal server error."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     payload = {"matched": matched_title, "recommendations": recommendations}
-    if matched_title.lower() != title.strip().lower():
+    # Only surface `query` for genuine corrections (typos / different titles),
+    # not for "Toy Story" -> "Toy Story (1995)" or "The Matrix" -> "Matrix, The (1999)".
+    if not same_title(title, matched_title):
         payload["query"] = title.strip()
 
     return Response(payload)
