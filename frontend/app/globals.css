@@ -1,17 +1,30 @@
-/* Tailwind layers */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens and defaults */
+/*
+ * Design tokens: graphite neutrals, one ember accent.
+ * Surfaces stay neutral so the posters carry the color.
+ * Design pass follows the unslop guidelines by Damir Sokolovsky (CC BY 4.0).
+ */
 :root {
-  --ui-bg: #0B0F17; /* Deep blue-black base */
-  --ring-soft: rgba(99,102,241,0.15); /* Indigo ring */
-  --border-soft: rgba(255,255,255,0.10); /* Hairline border */
-  --surface: rgba(255,255,255,0.06); /* Frosted surface tint */
+  --bg: #141415;
+  --card: #19191b;
+  --raised: #232325;
+  --line: rgba(237, 237, 237, 0.08);
+  --line-strong: rgba(237, 237, 237, 0.18);
+
+  --text: #ededed;
+  --text-2: #a1a1a6;
+  --muted: #85858b;
+
+  --accent: #e58a3c;
+  --accent-ink: #141415;
+  --danger: #e5484d;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Base resets and quality-of-life */
 @layer base {
   html {
     color-scheme: dark;
@@ -19,110 +32,43 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  body, #__next, #root {
-    min-height: 100%;
-    background: var(--ui-bg);
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
   }
 
   ::selection {
-    background: rgba(99,102,241,0.3);
-    color: white;
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--text);
+  }
+
+  /* Visible keyboard focus: a plain accent outline, no glow */
+  :where(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 }
 
-/* Opt-in transition helpers — applied per-component, not globally */
-.transition-ui {
-  transition:
-    color 200ms ease,
-    background-color 200ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease,
-    opacity 180ms ease;
+/* Loading placeholder: fades, no moving gradient */
+@keyframes skeleton-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
-/* Respect reduced motion for long-running effects */
+.skeleton {
+  background: var(--raised);
+  animation: skeleton-fade 1.4s var(--ease) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
   }
-}
-
-/* Skeleton shimmer */
-@keyframes shimmer {
-  0% { background-position: -300px 0; }
-  100% { background-position: 300px 0; }
-}
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(255,255,255,0.06) 0%,
-    rgba(255,255,255,0.12) 50%,
-    rgba(255,255,255,0.06) 100%
-  );
-  background-size: 600px 100%;
-  animation: shimmer 1.2s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; }
-}
-
-/* Cinematic ambient background */
-.bg-cinema {
-  background:
-    radial-gradient(800px 400px at 20% -10%, rgba(99,102,241,0.10), transparent 70%),
-    radial-gradient(700px 360px at 85% 0%, rgba(56,189,248,0.08), transparent 70%),
-    linear-gradient(180deg, #0B0F17 0%, #0F172A 35%, #0B0F17 100%);
-}
-
-/* Very soft edge vignette (with mask fallback) */
-.vignette {
-  pointer-events: none;
-  background: radial-gradient(1200px 600px at 50% 110%, rgba(0,0,0,0.6), transparent 60%);
-  /* Mask for softer center fade when supported */
-  -webkit-mask-image: radial-gradient(75% 60% at 50% 45%, black 60%, transparent 100%);
-  mask-image: radial-gradient(75% 60% at 50% 45%, black 60%, transparent 100%);
-}
-
-/* Ultra-light film grain */
-.grain {
-  background-image: repeating-linear-gradient(
-    0deg,
-    rgba(255,255,255,0.03) 0px,
-    rgba(255,255,255,0.03) 1px,
-    transparent 1px,
-    transparent 2px
-  );
-  mix-blend-mode: overlay;
-}
-
-/* Unified frosted-glass surface (dark-leaning by default) */
-.glass {
-  background-color: var(--surface);
-  border: 1px solid var(--border-soft);
-  backdrop-filter: blur(18px) saturate(120%);
-  -webkit-backdrop-filter: blur(18px) saturate(120%);
-}
-
-/* Optional lighter surface for light contexts, if ever needed */
-.glass-light {
-  background-color: rgba(255,255,255,0.4);
-  border: 1px solid rgba(0,0,0,0.06);
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
-}
-
-/* Soft, accessible focus ring */
-.focus-ring,
-:where(button, a, input, textarea, select):focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 1px rgba(255,255,255,0.07),
-    0 0 0 6px var(--ring-soft);
-}
-
-/* Accent glow for interactive elements */
-.glow-indigo {
-  box-shadow: 0 0 24px rgba(99,102,241,0.25);
 }

@@ -1,32 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import SearchBar from "../components/SearchBar";
 import MovieCard from "../components/MovieCard";
 import LoadingSkeleton from "../components/LoadingSkeleton";
-import BackgroundFX from "../components/BackgroundFX";
 import recommendMovies, { describeError, type Movie } from "../lib/api";
+import { parseTitle } from "../lib/title";
 
 const FEATURED = [
   "Inception", "The Dark Knight", "Toy Story", "Interstellar",
   "Pulp Fiction", "The Matrix", "Forrest Gump", "Fight Club",
 ];
 
-const fadeIn: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+// One entrance on load: a short fade and rise for the main content.
+const pageEnter: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: EASE } },
 };
 
-const gridVariants: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.06 } },
+// Cards share the same fade and rise; only the first six are staggered.
+const cardEnter: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.3, ease: EASE, delay: Math.min(i, 5) * 0.04 },
+  }),
 };
 
-const cardVariants: Variants = {
-  hidden: { opacity: 0, y: 20, scale: 0.97 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: "easeOut" } },
-};
+const GRID = "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5";
 
 export default function Home() {
   const [movies, setMovies] = useState<Movie[]>([]);
@@ -57,145 +62,111 @@ export default function Home() {
     }
   };
 
+  const parsed = parseTitle(matched || query);
+  const shownTitle = parsed.year ? `${parsed.title} (${parsed.year})` : parsed.title;
   const hasResults = !loading && movies.length > 0;
   const isEmpty = !loading && movies.length === 0 && !error && !query;
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#0B0F17] text-slate-100">
-      <BackgroundFX />
-
-      <div className="relative mx-auto w-full max-w-6xl px-6 py-12">
-        {/* Header */}
-        <motion.header
-          initial="hidden"
-          animate="show"
-          variants={fadeIn}
-          className="mb-10"
-        >
-          <div className="flex items-center gap-2.5 mb-1">
+    <main className="min-h-screen">
+      <motion.div
+        initial="hidden"
+        animate="show"
+        variants={pageEnter}
+        className="mx-auto w-full max-w-6xl px-6 py-12 md:px-8"
+      >
+        <header className="mb-8">
+          <div className="flex items-center gap-2">
             <ClapperIcon />
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-100 via-slate-200 to-slate-400">
-                Movie Recommender
-              </span>
-            </h1>
+            <h1 className="text-lg font-medium leading-none">Movie Recommender</h1>
           </div>
-          <p className="text-sm text-slate-500 pl-[2.1rem]">
-            Enter a film you love &mdash; get ten you&apos;ll want to watch next.
-          </p>
-        </motion.header>
+          <p className="mt-3 text-base text-ink-2">Type a film you like and get ten similar ones</p>
+        </header>
 
-        {/* Search Bar */}
-        <motion.div initial="hidden" animate="show" variants={fadeIn} className="mb-10">
+        <div className="mb-12">
           <SearchBar onSearch={handleSearch} />
-        </motion.div>
+        </div>
 
-        {/* Loading skeletons */}
         {loading && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className={GRID}>
             {[...Array(10)].map((_, i) => (
               <LoadingSkeleton key={i} />
             ))}
           </div>
         )}
 
-        {/* Error */}
         {!loading && error && (
-          <motion.div
-            initial="hidden"
-            animate="show"
-            variants={fadeIn}
-            className="mt-2 p-4 rounded-xl glass text-red-300 border border-red-400/10 text-sm"
+          <div
+            role="alert"
+            className="flex max-w-2xl items-start gap-3 rounded-xl border border-line bg-card p-4 text-sm text-ink-2"
           >
+            <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-danger" />
             {error}
-          </motion.div>
+          </div>
         )}
 
-        {/* Result header */}
-        <AnimatePresence>
-          {hasResults && (
-            <motion.div
-              key="result-header"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="mb-5"
-            >
-              <p className="text-sm text-slate-400">
-                <span className="text-slate-500">Because you watched</span>{" "}
-                <span className="text-slate-200 font-medium">{matched || query}</span>
-                <span className="ml-2 text-slate-600">· {movies.length} picks</span>
+        {hasResults && (
+          <section>
+            <div className="mb-6">
+              <p className="text-sm text-ink-2">
+                Because you watched <span className="font-medium text-ink">{shownTitle}</span>
+                <span className="ml-2 font-mono text-xs tabular-nums text-ink-muted">
+                  {movies.length} results
+                </span>
               </p>
               {correctedFrom && (
-                <p className="mt-1 text-xs text-amber-400/70">
-                  No exact match for &ldquo;{correctedFrom}&rdquo; &mdash; showing results for
-                  &ldquo;{matched}&rdquo; instead.
+                <p className="mt-1 text-sm text-ink-muted">
+                  No exact match for &ldquo;{correctedFrom}&rdquo;, showing results for
+                  &ldquo;{matched}&rdquo;
                 </p>
               )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
 
-        {/* Movie grid */}
-        {hasResults && (
-          <motion.div
-            key={query}
-            variants={gridVariants}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
-          >
-            {movies.map((m) => (
-              <motion.div key={m.tmdb_id ?? m.title} variants={cardVariants}>
-                <MovieCard
-                  title={m.title}
-                  poster={m.poster}
-                  vote_average={m.vote_average}
-                  release_date={m.release_date}
-                />
-              </motion.div>
-            ))}
-          </motion.div>
+            <div key={matched ?? query} className={GRID}>
+              {movies.map((m, i) => (
+                <motion.div
+                  key={m.tmdb_id ?? m.title}
+                  custom={i}
+                  variants={cardEnter}
+                  initial="hidden"
+                  animate="show"
+                >
+                  <MovieCard
+                    rank={i + 1}
+                    title={m.title}
+                    poster={m.poster}
+                    vote_average={m.vote_average}
+                    release_date={m.release_date}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          </section>
         )}
 
-        {/* Empty state */}
-        <AnimatePresence>
-          {isEmpty && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 }}
-              className="mt-4 text-center"
-            >
-              <p className="text-sm text-slate-500 mb-5">Not sure where to start?</p>
-              <div className="flex flex-wrap justify-center gap-2.5">
-                {FEATURED.map((film) => (
-                  <button
-                    key={film}
-                    onClick={() => handleSearch(film)}
-                    className="px-4 py-2 rounded-full glass text-sm text-slate-300 hover:text-white hover:border-slate-500 border border-white/10 transition-all active:scale-95"
-                  >
-                    {film}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {isEmpty && (
+          <section>
+            <p className="mb-3 text-sm text-ink-muted">Try one of these</p>
+            <div className="flex flex-wrap gap-2">
+              {FEATURED.map((film) => (
+                <button
+                  key={film}
+                  onClick={() => handleSearch(film)}
+                  className="h-8 rounded-lg border border-line bg-card px-3 text-sm text-ink-2 transition-[color,background-color,border-color,transform] duration-150 ease-smooth hover:border-line-strong hover:bg-raised hover:text-ink active:scale-[0.98]"
+                >
+                  {film}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
-        {/* No results (searched but nothing found) */}
         {!loading && query && movies.length === 0 && !error && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-6 text-center text-slate-500 text-sm"
-          >
-            No results for &ldquo;{query}&rdquo; &mdash; try a different title.
-          </motion.p>
+          <p className="text-sm text-ink-muted">
+            No results for &ldquo;{query}&rdquo;. Try a different title.
+          </p>
         )}
-      </div>
+      </motion.div>
     </main>
   );
 }
@@ -203,15 +174,16 @@ export default function Home() {
 function ClapperIcon() {
   return (
     <svg
-      width="28"
-      height="28"
+      width="20"
+      height="20"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="text-indigo-400 shrink-0"
+      className="shrink-0 text-ink"
+      aria-hidden
     >
       <path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4Z" />
       <path d="m4 11-.88-2.87a2 2 0 0 1 1.33-2.5l11.48-3.5a2 2 0 0 1 2.5 1.32l.87 2.87L4 11Z" />

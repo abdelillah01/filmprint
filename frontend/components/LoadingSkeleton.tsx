@@ -1,11 +1,12 @@
 export default function LoadingSkeleton() {
   return (
-    <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/[0.03]">
-      <div className="relative w-full aspect-[2/3] skeleton">
-        <div className="absolute inset-x-0 bottom-0 p-4 space-y-1.5">
-          <div className="h-4 w-3/4 rounded bg-white/10" />
-          <div className="h-3 w-1/3 rounded bg-white/10" />
-        </div>
+    <div className="overflow-hidden rounded-xl border border-line bg-card" aria-hidden>
+      <div className="skeleton aspect-[2/3] w-full" />
+      <div className="p-3">
+        <div className="skeleton h-4 w-6 rounded" />
+        <div className="skeleton mt-1 h-5 w-3/4 rounded" />
+        <div className="skeleton mt-1 h-4 w-1/3 rounded" />
+        <div className="h-5" />
       </div>
     </div>
   );
