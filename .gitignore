@@ -25,3 +25,6 @@ MAP.canvas
 # Claude Code (local config and instructions)
 .claude/
 CLAUDE.md
+
+# IMDb ratings: personal/non-commercial licence, never commit or redistribute
+ML-model/data/external/

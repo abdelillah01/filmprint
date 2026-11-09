@@ -55,12 +55,13 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "60/min",
+        "anon": "120/min",
+        "autocomplete": "300/min",
     },
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Movie Recommender API",
+    "TITLE": "Filmprint API",
     "DESCRIPTION": (
         "Content-based movie recommender: TF-IDF cosine similarity over "
         "genres, keywords, cast and crew."
