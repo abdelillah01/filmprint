@@ -1,40 +1,61 @@
 # Evaluation Results
 
-Generated: 2026-10-13  |  Catalog: 3536 movies  |  Users evaluated: 540
+Generated: 2026-11-09  |  Catalog: 3536 movies  |  Test users: 270 (x5 held-out seeds each)  |  Train users: 305
 
 ## Accuracy metrics
 
-| Model | P@10 | R@10 | MAP@10 | NDCG@10 | Coverage | Diversity | Novelty |
-|-------|------|------|--------|---------|----------|-----------|---------|
-| Popularity baseline | 0.0017 | 0.0003 | 0.0004 | **0.0015** | 0.28% | 0.9869 | 9.25 |
-| M1: TF-IDF metadata | 0.0580 | 0.0128 | 0.0329 | **0.0657** | 55.18% | 0.9429 | 6.43 |
-| M2: TF-IDF + overview | 0.0513 | 0.0118 | 0.0304 | **0.0586** | 55.74% | 0.9472 | 6.38 |
-| M3: TF-IDF tuned | 0.0544 | 0.0124 | 0.0317 | **0.0615** | 56.73% | 0.9589 | 6.32 |
-| M4: SVD/LSA | 0.0531 | 0.0121 | 0.0297 | **0.0592** | 53.76% | 0.6891 | 6.32 |
-| M5: Sentence embeddings | 0.0617 | 0.0161 | 0.0350 | **0.0705** | 51.41% | 0.5962 | 6.26 |
-| M6: Item-item CF | 0.3130 | 0.0904 | 0.2078 | **0.3274** | 37.50% | 0.9884 | 5.49 |
-| M7: Hybrid (α=0.2) | 0.3130 | 0.0904 | 0.2058 | **0.3261** | 37.50% | 0.9884 | 5.49 |
+| Model | P@10 | R@10 | MAP@10 | NDCG@10 (95% CI) | Coverage | Diversity | Novelty |
+|-------|------|------|--------|------------------|----------|-----------|---------|
+| Popularity: most liked | 0.3791 | 0.0941 | 0.2855 | **0.4104** ± 0.0345 | 0.31% | 0.9814 | 1.22 |
+| Popularity: top rated (>=10 votes) | 0.1118 | 0.0259 | 0.0341 | **0.0928** ± 0.0141 | 0.31% | 0.9818 | 3.65 |
+| M1: TF-IDF metadata | 0.0626 | 0.0138 | 0.0346 | **0.0752** ± 0.0100 | 75.59% | 0.9429 | 6.43 |
+| Production: M1 + rating rerank | 0.0673 | 0.0146 | 0.0370 | **0.0801** ± 0.0105 | 74.10% | 0.9425 | 6.28 |
+| M2: TF-IDF + overview | 0.0541 | 0.0113 | 0.0313 | **0.0658** ± 0.0102 | 75.48% | 0.9619 | 6.38 |
+| M3: TF-IDF tuned | 0.0571 | 0.0121 | 0.0325 | **0.0689** ± 0.0103 | 76.53% | 0.9594 | 6.32 |
+| M4: SVD/LSA | 0.0573 | 0.0123 | 0.0324 | **0.0684** ± 0.0106 | 74.21% | 0.9464 | 6.32 |
+| M5: Sentence embeddings | 0.0606 | 0.0146 | 0.0325 | **0.0720** ± 0.0089 | 68.44% | 0.9685 | 6.26 |
+| M6: Item-item CF | 0.2115 | 0.0650 | 0.1389 | **0.2329** ± 0.0197 | 43.86% | 0.9873 | 4.74 |
+| M7: Hybrid M3+CF (alpha=0.2) | 0.2119 | 0.0654 | 0.1391 | **0.2325** ± 0.0196 | 52.21% | 0.9749 | 6.01 |
+| M7: Hybrid M3+CF (alpha=0.5) | 0.2085 | 0.0640 | 0.1333 | **0.2274** ± 0.0188 | 52.55% | 0.9743 | 6.01 |
+| M7: Hybrid M3+CF (alpha=0.8) | 0.1524 | 0.0418 | 0.0826 | **0.1633** ± 0.0140 | 59.22% | 0.9681 | 6.09 |
 
 ## Interpretation
 
-**Best model**: M6: Item-item CF (NDCG@10 = 0.3274).
+**Best overall**: Popularity: most liked (NDCG@10 = 0.4104).
 
-**Baseline check**: Popularity baseline NDCG@10 = 0.0015. Content models beat it — confirming the model captures genuine preference signal beyond mere popularity.
+**Caveat - popularity wins this protocol.** A list that ignores the query and always returns the same few well-liked films (0.31% of the catalog) outscores every query-aware model. Held-out 'also liked' items are dominated by globally popular films, so this metric mostly rewards popularity. It does not measure what the product promises - films similar to the one you typed - and the NDCG numbers below should be read as 'agreement with what users liked', not 'quality of similarity'. Popularity-corrected metrics (e.g. NDCG with items weighted by inverse popularity) would be the next step.
 
-**Overview impact (M1 → M2)**: Adding plot-text to the TF-IDF features slightly hurt NDCG@10 by 10.8% (0.0657 → 0.0586). The metadata features alone are actually stronger; plot text may introduce noise at this vocab size.
+**Baseline check**: the strongest popularity baseline (Popularity: most liked) reaches NDCG@10 = 0.4104; M1 reaches 0.0752. The content model does NOT clearly beat popularity - treat its signal with caution.
 
-**Sentence embeddings (M5)**: At NDCG@10 = 0.0705, this is the best content-based model — pre-trained semantic representations capture meaning beyond keyword overlap. Diversity is lower (0.5962) because embeddings cluster semantically similar films more tightly.
+**Overview text (M1 -> M2)**: NDCG@10 0.0752 -> 0.0658 (-12.5%), within the confidence intervals, i.e. not distinguishable from noise. The production model uses metadata only (M1).
 
-**SVD (M4)**: Dimensionality reduction to 200 latent factors improved accuracy. Diversity collapses to 0.6891 — latent factors merge genre dimensions, narrowing recommendations to thematic clusters.
+**Tuned TF-IDF (M3)** vs M1: 0.0689 vs 0.0752 (-8.3%, within noise).
 
-**Collaborative filtering (M6)**: 398% NDCG lift over the best content model — co-rating signal captures taste overlap that no content feature can express (e.g. two films sharing no keywords but consistently liked together). The hybrid (M7) blends CF with content but barely changes the score, suggesting CF already dominates at α=0.2.
+**SVD/LSA (M4)** built on M3: 0.0684 vs 0.0689 (-0.7%), diversity 0.946 vs 0.959.
 
-**Coverage vs. accuracy tradeoff**: Higher-NDCG models tend toward lower coverage — they concentrate recommendations on a well-connected core. The popularity baseline has the lowest diversity by construction.
+**Sentence embeddings (M5)**: 0.0720 vs 0.0752 for M1 (-4.2%, within noise).
 
-**Known weakness**: The dataset intersection (MovieLens small ∩ TMDB 5000) is 3536 movies. Querying a film outside this set falls back to fuzzy title matching, which may resolve silently to an unrelated film (see P2-17).
+**Production rerank**: sim x vote_average^0.3 over the top-50 gives 0.0801 vs 0.0752 for plain M1 (+6.6%, within noise).
+
+**Collaborative filtering (M6)**, trained on train users only: 0.2329 vs 0.0752 for the best content model (M1: TF-IDF metadata), +210%. Because CF never sees the test users, this gap is an out-of-sample result, not leakage.
+
+**Hybrid (M7)**: best blend is M7: Hybrid M3+CF (alpha=0.2) at 0.2325 vs CF alone 0.2329 (within noise). Blending does not measurably beat the better single signal.
+
+**Diversity / coverage** (diversity measured in the shared M1 feature space): lowest diversity Production: M1 + rating rerank (0.942), highest M6: Item-item CF (0.987); lowest coverage Popularity: most liked (0.3%), highest M3: TF-IDF tuned (76.5%).
 
 ## Evaluation methodology
 
-- **Protocol**: leave-one-out per user. For each user with ≥20 total ratings, select one highly-rated (≥4.0★) catalog movie as seed; treat remaining highly-rated catalog movies as relevant. Request top-10 recommendations; score overlap.
-- **Metrics**: Precision@10 (fraction of top-10 that are relevant), Recall@10 (fraction of relevant items found), MAP@10 (position-weighted precision), NDCG@10 (graded relevance with log-discounted gain), Catalog coverage (fraction of library ever recommended), Intra-list diversity (1 − mean pairwise cosine similarity within a list), Novelty (−mean log₂ popularity; higher = more obscure recommendations).
-- **Seed**: numpy random seed 42 for reproducibility.
+- **Split**: users are shuffled (seed 42) and split 50/50 into test and train users. Collaborative filtering and the popularity baselines are built from **train users only**; content models use no ratings. All models are scored on the same test users, so no model sees the ratings it is graded against.
+- **Protocol**: for each test user with >=20 ratings and >=2 liked catalog movies, up to 5 liked movies (>=4.0 stars) are held out one at a time as the query; the user's other liked catalog movies are the relevant set. The model returns its top-10, excluding the query.
+- **Aggregation**: metrics are averaged over a user's seeds, then over users. The ± is a 95% normal-approximation CI over users; differences smaller than the combined CIs are reported as noise.
+- **Metrics**: Precision/Recall/MAP/NDCG@10; catalog coverage (fraction of the library ever recommended); intra-list diversity (1 - mean pairwise cosine similarity within a list, always in the M1 TF-IDF space so models are comparable, 300 sampled queries); novelty (mean -log2 popularity; higher = more obscure).
+- **Baselines**: *most liked* ranks by the number of train-user ratings >= 4.0; *top rated* ranks by mean rating among films with >=10 train-user votes. Both ignore the query.
+- **Hybrid**: alpha x content + (1 - alpha) x CF over min-max normalised full score vectors. All three alphas are reported; none was selected on the test users.
+- **Production row**: replicates what the API serves (M1 top-50 neighbors re-ranked by sim x vote_average^0.3).
+
+## Known limitations
+
+- Small catalog (MovieLens small ∩ TMDB 5000) and only ~610 MovieLens users; CF is trained on half of them, so its absolute numbers would improve with more data.
+- Relevance is 'the user also liked it', which favours popular, well-connected films (a query-independent popularity list is a very strong baseline here) and rewards CF structurally; it does not measure how good a *content-similar* list feels (e.g. sequels are trivially similar but may not be what a user wants).
+- Seeds are drawn from each user's liked films, so queries skew towards popular titles.
+- Queries outside the catalog fall back to title matching, which the API now normalises and reports via the `query` field when it had to correct a typo.
