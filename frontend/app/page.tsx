@@ -1,17 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { motion, type Variants } from "framer-motion";
-import SearchBar from "../components/SearchBar";
+import Navbar, { type View } from "../components/Navbar";
 import MovieCard from "../components/MovieCard";
 import LoadingSkeleton from "../components/LoadingSkeleton";
-import recommendMovies, { describeError, type Movie } from "../lib/api";
+import ProfileBar from "../components/ProfileBar";
+import Filters from "../components/Filters";
+import StatsPanel from "../components/StatsPanel";
+import Discover from "../components/Discover";
+import {
+  ApiError,
+  describeError,
+  fetchMeta,
+  recommend,
+  type CatalogMeta,
+  type RecommendResponse,
+} from "../lib/api";
+import {
+  EMPTY_FILTERS,
+  EMPTY_PROFILE,
+  activeFilterCount,
+  addDislike,
+  addLike,
+  clearSeen,
+  markSeen,
+  profileStore,
+  removeDislike,
+  removeLike,
+  sameTitles,
+  type Profile,
+} from "../lib/profile";
 import { parseTitle } from "../lib/title";
-
-const FEATURED = [
-  "Inception", "The Dark Knight", "Toy Story", "Interstellar",
-  "Pulp Fiction", "The Matrix", "Forrest Gump", "Fight Club",
-];
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -31,164 +51,320 @@ const cardEnter: Variants = {
   }),
 };
 
-const GRID = "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5";
+// Narrower than before: the stats sidebar takes the right-hand column from `lg` up.
+const GRID = "grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4";
+
+const noopSubscribe = () => () => {};
+
+/** "A", "A and B", "A, B and C" */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export default function Home() {
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [loading, setLoading] = useState(false);
+  // The taste profile lives in the browser (localStorage) and is read through an external
+  // store, so server render and first paint use the empty profile and nothing mismatches.
+  const profile = useSyncExternalStore(
+    profileStore.subscribe,
+    profileStore.getSnapshot,
+    profileStore.getServerSnapshot,
+  );
+  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
+
+  const [result, setResult] = useState<RecommendResponse | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [matched, setMatched] = useState<string | null>(null);
-  // Set only when the backend corrected the query (typo / near-miss), not on every search.
-  const [correctedFrom, setCorrectedFrom] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const [meta, setMeta] = useState<CatalogMeta | null>(null);
+  // Which page the user chose in the navbar. null = automatic: Discover until there is a
+  // profile, then recommendations.
+  const [view, setView] = useState<View | null>(null);
+  // Set when we replace the profile with the backend's canonical titles, so that update
+  // does not trigger a second identical request.
+  const skipNext = useRef(false);
 
-  const handleSearch = async (title: string) => {
-    setError("");
-    setMovies([]);
-    setQuery(title);
-    setMatched(null);
-    setCorrectedFrom(null);
-    setLoading(true);
-
-    try {
-      const { matched: m, query: corrected, recommendations } = await recommendMovies(title);
-      setMatched(m);
-      setCorrectedFrom(corrected ?? null);
-      setMovies(recommendations);
-    } catch (err) {
-      setError(describeError(err, title));
-    } finally {
-      setLoading(false);
+  /** Every profile change goes through here so an empty profile also clears the results. */
+  const update = (fn: (p: Profile) => Profile) => {
+    const next = fn(profileStore.getSnapshot());
+    profileStore.set(next);
+    if (next.likes.length === 0) {
+      setResult(null);
+      setError("");
+      setBusy(false);
     }
   };
 
-  const parsed = parseTitle(matched || query);
-  const shownTitle = parsed.year ? `${parsed.title} (${parsed.year})` : parsed.title;
-  const hasResults = !loading && movies.length > 0;
-  const isEmpty = !loading && movies.length === 0 && !error && !query;
+  useEffect(() => {
+    fetchMeta()
+      .then(setMeta)
+      .catch(() => setMeta(null));
+  }, []);
+
+  // Re-query whenever the profile changes; cancel anything still in flight.
+  useEffect(() => {
+    if (skipNext.current) {
+      skipNext.current = false;
+      return;
+    }
+    if (profile.likes.length === 0) return;
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      setBusy(true);
+      try {
+        const res = await recommend(profile, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setResult(res);
+        setError("");
+        setBusy(false);
+        // Adopt the catalog's spelling of each title ("The Matrix" -> "Matrix, The (1999)").
+        if (!sameTitles(res.likes, profile.likes) || !sameTitles(res.dislikes, profile.dislikes)) {
+          skipNext.current = true;
+          profileStore.set({ ...profileStore.getSnapshot(), likes: res.likes, dislikes: res.dislikes });
+        }
+      } catch (err) {
+        if (ctrl.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
+        setBusy(false);
+        if (err instanceof ApiError && err.kind === "not_found" && err.unresolved.length) {
+          // Drop the films we could not find so the rest of the profile still works.
+          setNotice(describeError(err));
+          const missing = err.unresolved.map((t) => t.toLowerCase());
+          update((p) => ({ ...p, likes: p.likes.filter((t) => !missing.includes(t.toLowerCase())) }));
+        } else {
+          setError(describeError(err));
+        }
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [profile]);
+
+  const add = (title: string) => {
+    setNotice("");
+    setView("for-you");
+    update((p) => addLike(p, title));
+  };
+
+  // Picking on the Discover page keeps you there (automatic mode would jump to the results).
+  const toggleLike = (title: string) => {
+    setView("discover");
+    update((p) =>
+      p.likes.some((t) => t.toLowerCase() === title.toLowerCase())
+        ? removeLike(p, title)
+        : addLike(p, title),
+    );
+  };
+
+  const goHome = () => {
+    setView(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const hasProfile = profile.likes.length > 0;
+  const hasResults = !!result && result.recommendations.length > 0;
+  const showSkeleton = busy && !result;
+  const filtersActive = activeFilterCount(profile.filters) > 0;
+  const activeView: View = hasProfile ? (view ?? "for-you") : "discover";
 
   return (
-    <main className="min-h-screen">
-      <motion.div
-        initial="hidden"
-        animate="show"
-        variants={pageEnter}
-        className="mx-auto w-full max-w-6xl px-6 py-12 md:px-8"
-      >
-        <header className="mb-8">
-          <div className="flex items-center gap-2">
-            <ClapperIcon />
-            <h1 className="text-lg font-medium leading-none">Movie Recommender</h1>
-          </div>
-          <p className="mt-3 text-base text-ink-2">Type a film you like and get ten similar ones</p>
-        </header>
+    <>
+      <Navbar
+        view={activeView}
+        hasProfile={hasProfile}
+        tasteCount={profile.likes.length}
+        onNavigate={setView}
+        onHome={goHome}
+        onAdd={add}
+        taste={
+          <ProfileBar
+            likes={profile.likes}
+            dislikes={profile.dislikes}
+            hiddenCount={profile.exclude.length}
+            onRemoveLike={(t) => update((p) => removeLike(p, t))}
+            onRemoveDislike={(t) => update((p) => removeDislike(p, t))}
+            onShowSeen={() => update(clearSeen)}
+            onReset={() => {
+              setNotice("");
+              setView(null);
+              update(() => EMPTY_PROFILE);
+            }}
+          />
+        }
+      />
 
-        <div className="mb-12">
-          <SearchBar onSearch={handleSearch} />
-        </div>
-
-        {loading && (
-          <div className={GRID}>
-            {[...Array(10)].map((_, i) => (
-              <LoadingSkeleton key={i} />
-            ))}
-          </div>
-        )}
-
-        {!loading && error && (
-          <div
-            role="alert"
-            className="flex max-w-2xl items-start gap-3 rounded-xl border border-line bg-card p-4 text-sm text-ink-2"
-          >
-            <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-danger" />
-            {error}
-          </div>
-        )}
-
-        {hasResults && (
-          <section>
-            <div className="mb-6">
-              <p className="text-sm text-ink-2">
-                Because you watched <span className="font-medium text-ink">{shownTitle}</span>
-                <span className="ml-2 font-mono text-xs tabular-nums text-ink-muted">
-                  {movies.length} results
-                </span>
-              </p>
-              {correctedFrom && (
-                <p className="mt-1 text-sm text-ink-muted">
-                  No exact match for &ldquo;{correctedFrom}&rdquo;, showing results for
-                  &ldquo;{matched}&rdquo;
-                </p>
-              )}
+      <main className="min-h-screen">
+        <motion.div
+          initial="hidden"
+          animate="show"
+          variants={pageEnter}
+          className="mx-auto w-full max-w-7xl px-6 pb-12 pt-8 md:px-8"
+        >
+          {notice && (
+            <div
+              role="status"
+              className="mb-6 flex max-w-2xl items-start justify-between gap-4 rounded-xl border border-line bg-card p-4 text-sm text-ink-2"
+            >
+              <span>{notice}</span>
+              <button
+                type="button"
+                onClick={() => setNotice("")}
+                className="shrink-0 text-ink-muted transition-colors duration-150 ease-smooth hover:text-ink"
+              >
+                Dismiss
+              </button>
             </div>
+          )}
 
-            <div key={matched ?? query} className={GRID}>
-              {movies.map((m, i) => (
-                <motion.div
-                  key={m.tmdb_id ?? m.title}
-                  custom={i}
-                  variants={cardEnter}
-                  initial="hidden"
-                  animate="show"
-                >
-                  <MovieCard
-                    rank={i + 1}
-                    title={m.title}
-                    poster={m.poster}
-                    vote_average={m.vote_average}
-                    release_date={m.release_date}
+          {activeView === "discover" ? (
+            hydrated && (
+              <Discover
+                genres={meta?.genres ?? []}
+                liked={profile.likes}
+                onToggle={toggleLike}
+                onClear={() => {
+                  setView("discover");
+                  update((p) => ({ ...p, likes: [] }));
+                }}
+                onSeeResults={() => setView("for-you")}
+              />
+            )
+          ) : (
+            <>
+              {meta && (
+                <div className="mb-8">
+                  <Filters
+                    meta={meta}
+                    value={profile.filters}
+                    onChange={(filters) => update((p) => ({ ...p, filters }))}
                   />
-                </motion.div>
-              ))}
-            </div>
-          </section>
-        )}
+                </div>
+              )}
 
-        {isEmpty && (
-          <section>
-            <p className="mb-3 text-sm text-ink-muted">Try one of these</p>
-            <div className="flex flex-wrap gap-2">
-              {FEATURED.map((film) => (
-                <button
-                  key={film}
-                  onClick={() => handleSearch(film)}
-                  className="h-8 rounded-lg border border-line bg-card px-3 text-sm text-ink-2 transition-[color,background-color,border-color,transform] duration-150 ease-smooth hover:border-line-strong hover:bg-raised hover:text-ink active:scale-[0.98]"
+              {showSkeleton && (
+                <ResultsLayout aside={<div className="skeleton h-80 rounded-xl" aria-hidden />}>
+                  <div className={GRID}>
+                    {[...Array(10)].map((_, i) => (
+                      <LoadingSkeleton key={i} />
+                    ))}
+                  </div>
+                </ResultsLayout>
+              )}
+
+              {!busy && error && (
+                <div
+                  role="alert"
+                  className="flex max-w-2xl items-start gap-3 rounded-xl border border-line bg-card p-4 text-sm text-ink-2"
                 >
-                  {film}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+                  <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-danger" />
+                  {error}
+                </div>
+              )}
 
-        {!loading && query && movies.length === 0 && !error && (
-          <p className="text-sm text-ink-muted">
-            No results for &ldquo;{query}&rdquo;. Try a different title.
-          </p>
-        )}
-      </motion.div>
-    </main>
+              {result && !error && (
+                <ResultsLayout
+                  aside={
+                    hasResults ? (
+                      <StatsPanel liked={result.liked} picks={result.recommendations} />
+                    ) : null
+                  }
+                >
+                  <div className="mb-6">
+                    <h2 className="text-sm text-ink-2">
+                      Because you like{" "}
+                      <span className="font-medium text-ink">
+                        {joinNames(result.likes.map((t) => parseTitle(t).title))}
+                      </span>
+                      <span className="ml-2 font-mono text-xs tabular-nums text-ink-muted">
+                        {result.recommendations.length} results
+                      </span>
+                    </h2>
+                    {result.corrections.map((c) => (
+                      <p key={c.query} className="mt-1 text-sm text-ink-muted">
+                        No exact match for &ldquo;{c.query}&rdquo;, using &ldquo;
+                        {parseTitle(c.matched).title}&rdquo; instead
+                      </p>
+                    ))}
+                  </div>
+
+                  {hasResults ? (
+                    <div
+                      className={`${GRID} transition-opacity duration-150 ease-smooth ${
+                        busy ? "opacity-60" : ""
+                      }`}
+                    >
+                      {result.recommendations.map((m, i) => (
+                        <motion.div
+                          key={m.tmdb_id ?? m.title}
+                          custom={i}
+                          variants={cardEnter}
+                          initial="hidden"
+                          animate="show"
+                        >
+                          <MovieCard
+                            rank={i + 1}
+                            movie={m}
+                            onLike={() => add(m.title)}
+                            onDislike={() => update((p) => addDislike(p, m.title))}
+                            onSeen={() => update((p) => markSeen(p, m.title))}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="max-w-2xl text-sm text-ink-muted">
+                      {filtersActive ? (
+                        <>
+                          No films match these filters.{" "}
+                          <button
+                            type="button"
+                            onClick={() => update((p) => ({ ...p, filters: EMPTY_FILTERS }))}
+                            className="text-ink-2 underline underline-offset-4 hover:text-ink"
+                          >
+                            Clear filters
+                          </button>
+                        </>
+                      ) : (
+                        "Nothing left to recommend. Remove a film from your lists or show the hidden ones."
+                      )}
+                    </div>
+                  )}
+                </ResultsLayout>
+              )}
+            </>
+          )}
+
+          {hasProfile && (
+            <footer className="mt-16 max-w-2xl text-xs leading-5 text-ink-muted">
+              Ratings from IMDb: a snapshot of IMDb&apos;s non-commercial dataset, information
+              courtesy of IMDb (imdb.com). Letterboxd links open the film&apos;s page there. Posters
+              and film data from TMDB; this product uses the TMDB API but is not endorsed or
+              certified by TMDB.
+            </footer>
+          )}
+        </motion.div>
+      </main>
+    </>
   );
 }
 
-function ClapperIcon() {
+/** Results on the left; the stats sidebar on the right from `lg`, below the posters on small screens. */
+function ResultsLayout({
+  aside,
+  children,
+}: {
+  aside: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0 text-ink"
-      aria-hidden
-    >
-      <path d="M4 11v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8H4Z" />
-      <path d="m4 11-.88-2.87a2 2 0 0 1 1.33-2.5l11.48-3.5a2 2 0 0 1 2.5 1.32l.87 2.87L4 11Z" />
-      <path d="m6.6 4.99 3.38 4.2" />
-      <path d="m11.86 3.38 3.38 4.2" />
-    </svg>
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div>{children}</div>
+      {aside && <aside className="mt-8 lg:sticky lg:top-24 lg:mt-0">{aside}</aside>}
+    </div>
   );
 }

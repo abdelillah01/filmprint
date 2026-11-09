@@ -66,6 +66,23 @@
   animation: skeleton-fade 1.4s var(--ease) infinite;
 }
 
+/* Decorative poster strip on the cold-start screen. Each item carries its own right margin
+   (not a flex gap) so shifting by exactly half the track gives a seamless loop. */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 60s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

@@ -6,8 +6,9 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Movie Recommender",
-  description: "Type a film you like and get ten similar ones, with posters and TMDB ratings",
+  title: "Filmprint: movie recommendation system",
+  description:
+    "Filmprint is a movie recommendation system. Add a few films you like and get ten to watch next, with IMDb ratings and links.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
