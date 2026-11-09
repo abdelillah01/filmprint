@@ -33,9 +33,16 @@ Changes made while closing out the audit; where a task above says "done" it refl
 - **Frontend errors**: typed `ApiError` / `describeError`; separate messages for not found, rate limited, model unavailable, network down; correction banner driven by the API's `query` field; "Parasite" chip replaced (not in the catalog).
 - **CI hygiene**: `black --check backend/` was failing on 7 files before this date; backend is now formatted. `scripts/download_data.py` uses `requests` (certifi) instead of `urllib`.
 
+- **Personalization** (taste profile): `POST /api/v1/recommend/` takes `likes` / `dislikes` / `exclude` / `filters`; `profile.py` averages the liked films' TF-IDF vectors (Rocchio-style, dislikes subtracted at 0.5). Autocomplete (`/titles/`) and filter facts (`/meta/`) endpoints; the UI adds a profile bar, filters and 👍/👎/seen on each card, persisted in localStorage. Measured offline: 3 likes +62% NDCG vs 1 film, 5 likes a further +29%, dislikes no measurable gain, hide-watched a small gain (see `evaluation/results.md`, *Personalization lift*).
+
+- **Ratings and stats:** cards show the IMDb rating (from IMDb's non-commercial dataset via `scripts/fetch_imdb.py`, gitignored; TMDB ratings are no longer displayed), runtime, vote counts and IMDb/Letterboxd links; the `min_rating` filter now uses the IMDb rating; `scripts/build_film_stats.py` builds the committed `film_stats.csv`; a Stats panel compares liked films with the picks. Letterboxd ratings are not available (no public API), so it is link-only.
+
 ### Still open
 
 - **P0-01** rotate the TMDB key (needs your login).
+- **Cold start** menu (poster strip + picker via `GET /api/v1/popular/`) and an always-visible stats sidebar replaced the empty first screen and the collapsible stats table.
+- **Navbar**: sticky bar with brand, search (moved out of the page body), Discover / For you pages, a "Your taste" menu (the profile chips moved there) and a GitHub link.
+
 - **P3-08** database decision; **P3-09** API still lacks `genres` and `similarity_score`; **P3-17/18** frontend tests; **P3-20** autocomplete; **P3-21** franchise de-duplication.
 - **P4-05** usage GIF; **P4-11** Conventional Commits.
 - New: popularity-corrected evaluation metrics and a small human-judged similarity set (frontend CI now also runs `tsc --noEmit` and `next build`).

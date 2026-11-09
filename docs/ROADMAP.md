@@ -1,4 +1,4 @@
-# Portfolio Roadmap — Movie Recommender
+# Portfolio Roadmap — Filmprint
 
 **Goal:** take this from "working prototype" to a project that holds up as the flagship item on a master's-level CV.
 
