@@ -43,6 +43,32 @@ Generated: 2026-11-09  |  Catalog: 3536 movies  |  Test users: 270 (x5 held-out 
 
 **Diversity / coverage** (diversity measured in the shared M1 feature space): lowest diversity Production: M1 + rating rerank (0.942), highest M6: Item-item CF (0.987); lowest coverage Popularity: most liked (0.3%), highest M3: TF-IDF tuned (76.5%).
 
+## Personalization lift
+
+Does telling the model more about the user help? Same held-out users and the same relevant films for every row (content model M1, no rating rerank). 264 users x 3 draws.
+
+| Setup | P@10 | R@10 | NDCG@10 (95% CI) | Δ NDCG vs 1 film (paired 95% CI) |
+|-------|------|------|------------------|-----------------------------------|
+| 1 liked film (baseline) | 0.0530 | 0.0124 | **0.0655** ± 0.0098 | n/a |
+| 3 liked films | 0.0879 | 0.0211 | **0.1061** ± 0.0141 | +0.0407 ± 0.0094 * |
+| 5 liked films | 0.1154 | 0.0297 | **0.1369** ± 0.0172 | +0.0715 ± 0.0125 * |
+| 3 liked + dislikes | 0.0859 | 0.0211 | **0.1049** ± 0.0141 | +0.0394 ± 0.0096 * |
+| 3 liked + dislikes + hide watched | 0.0896 | 0.0218 | **0.1108** ± 0.0149 | +0.0453 ± 0.0100 * |
+| 5 liked + dislikes + hide watched | 0.1183 | 0.0299 | **0.1443** ± 0.0180 | +0.0788 ± 0.0129 * |
+| Popularity: most liked | 0.3559 | 0.0954 | **0.3894** ± 0.0342 | +0.3239 ± 0.0326 * |
+| Popularity: most liked + hide watched | 0.3874 | 0.1033 | **0.4231** ± 0.0368 | +0.3576 ± 0.0349 * |
+
+\* the paired 95% CI excludes zero.
+
+- **3 liked films** vs 1 liked film (baseline): NDCG@10 0.1061 vs 0.0655 (+62.1%), a real gain.
+- **5 liked films** vs 3 liked films: NDCG@10 0.1369 vs 0.1061 (+29.0%), a real gain.
+- **3 liked + dislikes** vs 3 liked films: NDCG@10 0.1049 vs 0.1061 (-1.2%), within noise.
+- **3 liked + dislikes + hide watched** vs 3 liked + dislikes: NDCG@10 0.1108 vs 0.1049 (+5.6%), a real gain.
+- Hiding watched films also lifts the popularity baseline (0.3894 -> 0.4231), so part of that gain is not about taste.
+- Even the richest profile (0.1443) stays far below query-ignoring popularity (0.4231) under this protocol; see the caveat above about what the metric rewards.
+
+**Protocol.** For each test user, 5 liked films are revealed per draw and the user's *other* liked films are the relevant set (identical for every row). A row using fewer than 5 likes never recommends the unused revealed ones. *Dislikes* are up to 3 films the user rated <= 2.5. *Hide watched* removes every film the user rated except the held-out relevant ones, which is what a real user's own history would remove. The scoring function is `backend/recommender_app/profile.py`, loaded directly, so this measures the production code. Filters and in-session thumbs feedback have no offline ground truth and are not measured here.
+
 ## Evaluation methodology
 
 - **Split**: users are shuffled (seed 42) and split 50/50 into test and train users. Collaborative filtering and the popularity baselines are built from **train users only**; content models use no ratings. All models are scored on the same test users, so no model sees the ratings it is graded against.

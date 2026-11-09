@@ -20,6 +20,7 @@ Protocol (no leakage):
 """
 
 import argparse
+import importlib.util
 import sys
 import warnings
 from datetime import date
@@ -374,6 +375,204 @@ def interpretation(res):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Personalisation: does a richer taste profile beat a single query film?
+# ---------------------------------------------------------------------------
+
+PERSONALIZATION_DRAWS = 3  # independent draws per user
+PROFILE_SEEDS = 5  # liked films revealed per draw (a row may use only the first k)
+MAX_DISLIKES = 3
+LOW_RATING = 2.5  # ratings at or below this count as dislikes
+
+
+def load_profile_scores():
+    """Load the production scoring function straight from the backend source file."""
+    path = REPO_ROOT / "backend" / "recommender_app" / "profile.py"
+    spec = importlib.util.spec_from_file_location("profile_scoring", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.profile_scores
+
+
+def personalization_cases(ratings, users):
+    """Per user: draws of (5 revealed likes, held-out relevant set, dislikes, watched films).
+
+    The relevant set is the user's other liked films and is the same for every row, so rows
+    with different numbers of likes are directly comparable. Revealed likes that a row does
+    not use are simply never recommended, so they neither help nor hurt it.
+    """
+    rng = np.random.default_rng(SEED + 1)
+    cases = {}
+    for uid in sorted(users):
+        ur = ratings[ratings["userId"] == uid]
+        liked = sorted(set(ur[ur["rating"] >= HIGH_RATING]["idx"]))
+        if len(liked) < PROFILE_SEEDS + 1:
+            continue
+        disliked = sorted(set(ur[ur["rating"] <= LOW_RATING]["idx"]))
+        rated = set(ur["idx"])
+        draws = []
+        for _ in range(PERSONALIZATION_DRAWS):
+            seeds = [int(x) for x in rng.choice(liked, PROFILE_SEEDS, replace=False)]
+            relevant = set(liked) - set(seeds)
+            dislikes = (
+                [int(x) for x in rng.choice(disliked, min(MAX_DISLIKES, len(disliked)), False)]
+                if disliked
+                else []
+            )
+            draws.append(
+                {
+                    "seeds": seeds,
+                    "relevant": relevant,
+                    "dislikes": dislikes,
+                    "watched": rated - relevant,  # everything they have rated except the held-out
+                }
+            )
+        cases[uid] = draws
+    return cases
+
+
+def profile_ranker(matrix, profile_scores, k, use_dislikes=False, hide_watched=False):
+    def rank(draw):
+        likes = draw["seeds"][:k]
+        dislikes = draw["dislikes"] if use_dislikes else []
+        scores = profile_scores(matrix, likes, dislikes)
+        banned = set(draw["seeds"]) | set(dislikes)
+        if hide_watched:
+            banned |= draw["watched"]
+        scores[list(banned)] = -np.inf
+        return np.argsort(-scores, kind="stable")[:K].tolist()
+
+    return rank
+
+
+def popularity_ranker(train, n_movies, hide_watched=False):
+    base = popularity_most_liked(train, n_movies)(0)
+
+    def rank(draw):
+        scores = base.astype(float).copy()
+        banned = set(draw["seeds"])
+        if hide_watched:
+            banned |= draw["watched"]
+        scores[list(banned)] = -np.inf
+        return np.argsort(-scores, kind="stable")[:K].tolist()
+
+    return rank
+
+
+def evaluate_cases(rank_fn, cases):
+    per_user = {"p": [], "r": [], "ndcg": []}
+    for draws in cases.values():
+        acc = {"p": [], "r": [], "ndcg": []}
+        for d in draws:
+            hits = [1 if i in d["relevant"] else 0 for i in rank_fn(d)]
+            acc["p"].append(sum(hits) / K)
+            acc["r"].append(sum(hits) / len(d["relevant"]))
+            acc["ndcg"].append(_ndcg(hits, len(d["relevant"])))
+        for key, vals in acc.items():
+            per_user[key].append(float(np.mean(vals)))
+    ndcg, ci = mean_ci(per_user["ndcg"])
+    return {
+        "P@10": float(np.mean(per_user["p"])),
+        "R@10": float(np.mean(per_user["r"])),
+        "NDCG@10": ndcg,
+        "NDCG_ci": ci,
+        "ndcg_users": per_user["ndcg"],
+        "n_users": len(per_user["ndcg"]),
+    }
+
+
+def personalization_section(ratings, train, test_cases, matrix, n_movies):
+    profile_scores = load_profile_scores()
+    cases = personalization_cases(ratings, test_cases.keys())
+
+    setups = {
+        "1 liked film (baseline)": profile_ranker(matrix, profile_scores, 1),
+        "3 liked films": profile_ranker(matrix, profile_scores, 3),
+        "5 liked films": profile_ranker(matrix, profile_scores, 5),
+        "3 liked + dislikes": profile_ranker(matrix, profile_scores, 3, use_dislikes=True),
+        "3 liked + dislikes + hide watched": profile_ranker(
+            matrix, profile_scores, 3, use_dislikes=True, hide_watched=True
+        ),
+        "5 liked + dislikes + hide watched": profile_ranker(
+            matrix, profile_scores, 5, use_dislikes=True, hide_watched=True
+        ),
+        "Popularity: most liked": popularity_ranker(train, n_movies),
+        "Popularity: most liked + hide watched": popularity_ranker(
+            train, n_movies, hide_watched=True
+        ),
+    }
+    res = {name: evaluate_cases(fn, cases) for name, fn in setups.items()}
+    base = res["1 liked film (baseline)"]
+    base_users = np.asarray(base["ndcg_users"])
+
+    lines = [
+        "## Personalization lift",
+        "",
+        "Does telling the model more about the user help? Same held-out users and the same "
+        "relevant films for every row (content model M1, no rating rerank). "
+        f"{next(iter(res.values()))['n_users']} users x {PERSONALIZATION_DRAWS} draws.",
+        "",
+        "| Setup | P@10 | R@10 | NDCG@10 (95% CI) | Δ NDCG vs 1 film (paired 95% CI) |",
+        "|-------|------|------|------------------|-----------------------------------|",
+    ]
+    for name, r in res.items():
+        if name == "1 liked film (baseline)":
+            delta = "n/a"
+        else:
+            d, half = mean_ci(np.asarray(r["ndcg_users"]) - base_users)
+            delta = f"{d:+.4f} ± {half:.4f}" + (" *" if abs(d) > half else "")
+        lines.append(
+            f"| {name} | {r['P@10']:.4f} | {r['R@10']:.4f} "
+            f"| **{r['NDCG@10']:.4f}** ± {r['NDCG_ci']:.4f} | {delta} |"
+        )
+    lines += ["", "\\* the paired 95% CI excludes zero.", ""]
+
+    def step(name, versus):
+        """Paired comparison of one setup against the one it builds on."""
+        a, b = res[name], res[versus]
+        d, half = mean_ci(np.asarray(a["ndcg_users"]) - np.asarray(b["ndcg_users"]))
+        verdict = "a real gain" if d > half else ("a real loss" if d < -half else "within noise")
+        return (
+            f"- **{name}** vs {versus}: NDCG@10 {a['NDCG@10']:.4f} vs {b['NDCG@10']:.4f} "
+            f"({pct(a['NDCG@10'], b['NDCG@10']):+.1f}%), {verdict}."
+        )
+
+    one = "1 liked film (baseline)"
+    out = [
+        step("3 liked films", one),
+        step("5 liked films", "3 liked films"),
+        step("3 liked + dislikes", "3 liked films"),
+        step("3 liked + dislikes + hide watched", "3 liked + dislikes"),
+    ]
+    pop, pop_hide = (
+        res["Popularity: most liked"]["NDCG@10"],
+        res["Popularity: most liked + hide watched"]["NDCG@10"],
+    )
+    out.append(
+        f"- Hiding watched films also lifts the popularity baseline ({pop:.4f} -> {pop_hide:.4f}), "
+        "so part of that gain is not about taste."
+    )
+    best = res["5 liked + dislikes + hide watched"]["NDCG@10"]
+    out.append(
+        f"- Even the richest profile ({best:.4f}) stays far below query-ignoring popularity "
+        f"({pop_hide:.4f}) under this protocol; see the caveat above about what the metric rewards."
+    )
+
+    lines += out + [
+        "",
+        "**Protocol.** For each test user, 5 liked films are revealed per draw and the user's "
+        "*other* liked films are the relevant set (identical for every row). A row using fewer "
+        "than 5 likes never recommends the unused revealed ones. *Dislikes* are up to 3 films the "
+        f"user rated <= {LOW_RATING}. *Hide watched* removes every film the user rated except the "
+        "held-out relevant ones, which is what a real user's own history would remove. The "
+        "scoring function is `backend/recommender_app/profile.py`, loaded directly, so this "
+        "measures the production code. Filters and in-session thumbs feedback have no offline "
+        "ground truth and are not measured here.",
+        "",
+    ]
+    return lines
+
+
 def run(use_embeddings=True):
     print("Loading data...", flush=True)
     movies, ratings = load_data()
@@ -440,6 +639,8 @@ def run(use_embeddings=True):
     for para in interpretation(res):
         lines += [para, ""]
 
+    print("Evaluating personalisation...", flush=True)
+    lines += personalization_section(ratings, train, cases, mat_m1, n)
     lines += [
         "## Evaluation methodology",
         "",
