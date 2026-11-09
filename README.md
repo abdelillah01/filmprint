@@ -157,8 +157,9 @@ backend/
   recommender_app/             utils.py (model + matching), views.py (DRF), tests.py
 frontend/
   app/page.tsx                 page and state
-  components/                  SearchBar, MovieCard, LoadingSkeleton, BackgroundFX
+  components/                  SearchBar, MovieCard, LoadingSkeleton
   lib/api.ts                   typed API client + error classification
+  lib/title.ts                 "Matrix, The (1999)" -> "The Matrix" display formatting
 evaluation/                    evaluate.py, results.md
 docs/                          ROADMAP.md (audit and plan), TASKS.md (progress checklist)
 scripts/                       download_data.py, fetch_posters.py
@@ -187,6 +188,7 @@ scripts/                       download_data.py, fetch_posters.py
 
 - [MovieLens `ml-latest-small`](https://grouplens.org/datasets/movielens/latest/) (GroupLens Research): ratings, titles, links.
 - [TMDB 5000 Movie Dataset](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata): cast, crew, keywords, overviews.
+- Frontend design pass follows the [unslop](https://github.com/heydamir/unslop) guidelines by Damir Sokolovsky (CC BY 4.0).
 - Posters and `vote_average` © [TMDB](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 MIT licensed. See [LICENSE](LICENSE).
